@@ -43,6 +43,11 @@ GRAPHQL_URL = "https://api.github.com/graphql"
 import urllib.request
 
 
+class GraphQLError(Exception):
+    """Raised when a GraphQL query fails."""
+    pass
+
+
 def graphql(query: str, variables: dict | None = None) -> dict:
     """Execute a GitHub GraphQL query and return the JSON response."""
     payload = json.dumps({"query": query, "variables": variables or {}}).encode()
@@ -57,8 +62,9 @@ def graphql(query: str, variables: dict | None = None) -> dict:
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read())
     if "errors" in data:
-        print("GraphQL errors:", json.dumps(data["errors"], indent=2), file=sys.stderr)
-        sys.exit(1)
+        error_msg = json.dumps(data["errors"], indent=2)
+        print("GraphQL errors:", error_msg, file=sys.stderr)
+        raise GraphQLError(error_msg)
     return data["data"]
 
 
@@ -74,7 +80,12 @@ def paginate(query: str, path: list[str], variables: dict | None = None) -> list
     all_nodes: list = []
 
     while True:
-        data = graphql(query, variables)
+        try:
+            data = graphql(query, variables)
+        except GraphQLError as e:
+            print(f"Failed to fetch page: {e}", file=sys.stderr)
+            raise
+        
         obj = data
         for key in path:
             obj = obj[key]
@@ -302,6 +313,10 @@ def fetch_pr_counts(logins: list[str], search_filter: str) -> dict[str, int]:
 
     *search_filter* is appended after ``repo:… is:pr author:{login}``,
     e.g. ``"is:merged"`` or ``"is:closed is:unmerged"``.
+    
+    If a batch query fails (e.g. due to an invalid author like a deleted bot),
+    it falls back to querying each login individually. Logins that fail are
+    counted as 0.
     """
     counts: dict[str, int] = {}
     batch_size = 20
@@ -327,17 +342,20 @@ def fetch_pr_counts(logins: list[str], search_filter: str) -> dict[str, int]:
             for j, login in enumerate(batch):
                 counts[login] = data[f"u{j}"]["issueCount"]
             continue
-        except SystemExit:
+        except GraphQLError:
             # Some author qualifiers (for example deleted bot users) can make
             # a batched search fail. Retry each login independently so one
             # invalid author doesn't fail the entire workflow.
-            pass
+            print(
+                f"Warning: batch query failed, retrying logins individually",
+                file=sys.stderr,
+            )
 
         for login in batch:
             try:
                 data = graphql(query_for_batch([login]))
                 counts[login] = data["u0"]["issueCount"]
-            except SystemExit:
+            except GraphQLError:
                 counts[login] = 0
                 print(
                     f"Warning: skipping PR count lookup for unknown author '{login}'",
@@ -462,29 +480,36 @@ def write_sheet(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    print(f"Fetching data for {REPO_OWNER}/{REPO_NAME} ...")
+    try:
+        print(f"Fetching data for {REPO_OWNER}/{REPO_NAME} ...")
 
-    print("  Fetching open pull requests ...")
-    prs = fetch_pull_requests()
-    print(f"    Found {len(prs)} open PRs")
+        print("  Fetching open pull requests ...")
+        prs = fetch_pull_requests()
+        print(f"    Found {len(prs)} open PRs")
 
-    print("  Fetching open issues ...")
-    issues = fetch_issues()
-    print(f"    Found {len(issues)} open issues")
+        print("  Fetching open issues ...")
+        issues = fetch_issues()
+        print(f"    Found {len(issues)} open issues")
 
-    pr_rows = build_pr_rows(prs)
-    issue_rows = build_issue_rows(issues)
-    contributor_rows = build_contributor_rows(prs, issues)
+        pr_rows = build_pr_rows(prs)
+        issue_rows = build_issue_rows(issues)
+        contributor_rows = build_contributor_rows(prs, issues)
 
-    print(f"Writing to Google Sheet {SHEET_ID} ...")
-    gc = get_gspread_client()
-    spreadsheet = gc.open_by_key(SHEET_ID)
+        print(f"Writing to Google Sheet {SHEET_ID} ...")
+        gc = get_gspread_client()
+        spreadsheet = gc.open_by_key(SHEET_ID)
 
-    write_sheet(spreadsheet, "Open Pull Requests", pr_rows)
-    write_sheet(spreadsheet, "Open Issues", issue_rows)
-    write_sheet(spreadsheet, "Contributor Activity", contributor_rows)
+        write_sheet(spreadsheet, "Open Pull Requests", pr_rows)
+        write_sheet(spreadsheet, "Open Issues", issue_rows)
+        write_sheet(spreadsheet, "Contributor Activity", contributor_rows)
 
-    print("Done!")
+        print("Done!")
+    except GraphQLError as e:
+        print(f"Error: GraphQL query failed: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {type(e).__name__}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
