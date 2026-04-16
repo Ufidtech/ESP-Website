@@ -31,6 +31,8 @@ jobs:
   migrations:
     name: Migration Consistency Check
     runs-on: ubuntu-24.04
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     services:
       postgres:
         image: postgres:14
