@@ -85,7 +85,7 @@ def paginate(query: str, path: list[str], variables: dict | None = None) -> list
         except GraphQLError as e:
             print(f"Failed to fetch page: {e}", file=sys.stderr)
             raise
-        
+
         obj = data
         for key in path:
             obj = obj[key]
@@ -313,7 +313,7 @@ def fetch_pr_counts(logins: list[str], search_filter: str) -> dict[str, int]:
 
     *search_filter* is appended after ``repo:… is:pr author:{login}``,
     e.g. ``"is:merged"`` or ``"is:closed is:unmerged"``.
-    
+
     If a batch query fails (e.g. due to an invalid author like a deleted bot),
     it falls back to querying each login individually. Logins that fail are
     counted as 0.
