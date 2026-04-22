@@ -32,8 +32,11 @@ jobs:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      DJANGO_SETTINGS_MODULE: esp.settings
+
     strategy:
       fail-fast: false
       matrix:
@@ -47,15 +50,12 @@ jobs:
           POSTGRES_DB: test_django
         ports:
           - 5432:5432
-        # needed because the postgres container does not provide a healthcheck
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
       memcached:
         image: memcached:alpine
         ports:
           - 11211:11211
-    env:
-      DJANGO_SETTINGS_MODULE: esp.settings
-
+    
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
     - name: Set up Python ${{ matrix.python-version }}
