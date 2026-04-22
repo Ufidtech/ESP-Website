@@ -28,6 +28,6 @@ jobs:
           GOOGLE_SA_KEY: ${{ secrets.GOOGLE_SA_KEY }}
           SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           # Set these to your repo, or override via repository variables
-          REPO_OWNER: ${{ vars.REPO_OWNER }}
-          REPO_NAME: ${{ vars.REPO_NAME }}
+          REPO_OWNER: ${{ vars.REPO_OWNER || github.repository_owner }}
+REPO_NAME: ${{ vars.REPO_NAME || github.event.repository.name }}
         run: python .github/scripts/project-tracker/update_project_sheet.py
